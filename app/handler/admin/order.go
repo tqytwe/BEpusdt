@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,6 +42,14 @@ type createReq struct {
 	Fiat       model.Fiat `json:"fiat"`
 	Currencies string     `json:"currencies"`
 	Timeout    int64      `json:"timeout"`
+}
+
+func normalizePaidRefHash(raw string) (string, error) {
+	refHash := strings.TrimSpace(raw)
+	if refHash == "" {
+		return "", errors.New("交易哈希不能为空")
+	}
+	return refHash, nil
 }
 
 func (Order) Create(ctx *gin.Context) {
@@ -192,6 +202,12 @@ func (Order) Paid(ctx *gin.Context) {
 
 		return
 	}
+	refHash, err := normalizePaidRefHash(req.RefHash)
+	if err != nil {
+		base.BadRequest(ctx, err.Error())
+
+		return
+	}
 
 	var order model.Order
 	model.Db.Where("id = ?", req.ID).Find(&order)
@@ -209,19 +225,19 @@ func (Order) Paid(ctx *gin.Context) {
 
 	confirmedAt := time.Now()
 	var update = map[string]interface{}{
-		"ref_hash":     req.RefHash,
+		"ref_hash":     refHash,
 		"status":       model.OrderStatusSuccess,
 		"confirmed_at": model.Datetime(confirmedAt),
 	}
 
-	err := model.Db.Model(&order).Updates(update).Error
+	err = model.Db.Model(&order).Updates(update).Error
 	if err != nil {
 		base.Error(ctx, err)
 
 		return
 	}
 
-	order.RefHash = req.RefHash
+	order.RefHash = refHash
 	order.Status = model.OrderStatusSuccess
 	order.ConfirmedAt = &confirmedAt
 
